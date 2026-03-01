@@ -24,7 +24,7 @@ app.add_middleware(
 class ClaudeRequest(BaseModel):
     messages:   list
     system:     str = ""
-    max_tokens: int = 1000
+    max_tokens: int = 4000
 
 
 def check_secret(request: Request):
