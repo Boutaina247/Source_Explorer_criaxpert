@@ -317,15 +317,15 @@ async def extract_content(payload: ExtractRequest, request: Request):
         for i, s in enumerate(payload.sources[:5])
     ])
 
-    prompt = f"""Expert pédagogie IA. Sujet: "{payload.query}"
+    json_template = '{"angle_module":"phrase courte","concepts_cles":[{"concept":"nom","definition":"def courte"}],"points_pedagogiques":[{"titre":"titre","contenu":"contenu court"}],"idees_quiz":[{"question":"Q?","reponse_courte":"rep"}],"idees_exercices":[{"titre":"titre","description":"desc"}]}'
 
-Contenu réel des sources:
-{src_text}
-
-Réponds avec un JSON valide et COMPACT (pas de sauts de ligne dans les valeurs):
-{{"angle_module":"phrase courte","concepts_cles":[{{"concept":"nom","definition":"def courte"}}],"points_pedagogiques":[{{"titre":"titre","contenu":"contenu court"}}],"idees_quiz":[{{"question":"Q?","reponse_courte":"rep"}}],"idees_exercices":[{{"titre":"titre","description":"desc"}}]}}
-
-STRICT: 3 concepts max, 3 points max, 3 quiz max, 2 exercices max. Valeurs courtes (max 15 mots). JSON sur une seule ligne."""
+    prompt = (
+        f'Expert pédagogie IA. Sujet: "{payload.query}"\n\n'
+        f"Contenu réel des sources:\n{src_text}\n\n"
+        f"Réponds avec un JSON valide et COMPACT (pas de sauts de ligne dans les valeurs):\n"
+        f"{json_template}\n\n"
+        f"STRICT: 3 concepts max, 3 points max, 3 quiz max, 2 exercices max. Valeurs courtes (max 15 mots). JSON sur une seule ligne."
+    )
 
     try:
         raw = await call_claude([{"role": "user", "content": prompt}], max_tokens=1500)
@@ -342,13 +342,15 @@ async def generate_draft(payload: DraftRequest, request: Request):
 
     concepts_str = ", ".join([c.get("concept","") if isinstance(c, dict) else str(c) for c in payload.concepts[:3]])
 
-    prompt = f"""Expert pédagogie IA. Génère un brouillon de module.
-Titre: "{payload.query}" | Angle: {payload.angle} | Concepts: {concepts_str}
+    draft_template = '{"titre":"titre final","description":"2 phrases","objectifs":["obj1","obj2","obj3"],"plan_cours":[{"section":"titre","duree_min":10,"contenu_resume":"1 phrase"}],"quiz_draft":[{"question":"Q?","options":["A. rep","B. rep","C. rep","D. rep"],"correct":"A","explication":"1 phrase"}],"exercice_draft":{"titre":"titre","objectif":"1 phrase","consignes":["e1","e2","e3"],"duree_estimee":"30 min"},"tags":["t1","t2","t3"],"difficulte":"beginner","duree_totale_min":45}'
 
-JSON COMPACT sur une seule ligne:
-{{"titre":"titre final","description":"2 phrases","objectifs":["obj1","obj2","obj3"],"plan_cours":[{{"section":"titre","duree_min":10,"contenu_resume":"1 phrase"}}],"quiz_draft":[{{"question":"Q?","options":["A. rep","B. rep","C. rep","D. rep"],"correct":"A","explication":"1 phrase"}}],"exercice_draft":{{"titre":"titre","objectif":"1 phrase","consignes":["e1","e2","e3"],"duree_estimee":"30 min"}},"tags":["t1","t2","t3"],"difficulte":"beginner","duree_totale_min":45}}
-
-STRICT: 3 sections plan, 2 questions quiz, valeurs courtes. JSON sur une seule ligne."""
+    prompt = (
+        f'Expert pédagogie IA. Génère un brouillon de module.\n'
+        f'Titre: "{payload.query}" | Angle: {payload.angle} | Concepts: {concepts_str}\n\n'
+        f"JSON COMPACT sur une seule ligne:\n"
+        f"{draft_template}\n\n"
+        f"STRICT: 3 sections plan, 2 questions quiz, valeurs courtes. JSON sur une seule ligne."
+    )
 
     try:
         raw = await call_claude([{"role": "user", "content": prompt}], max_tokens=1500)
