@@ -249,38 +249,123 @@ async def fetch_manual_urls(payload: ManualSourcesRequest, request: Request):
     return {"sources": sources, "query": payload.query}
 
 
-@app.post("/api/claude")
-async def claude_proxy(payload: ClaudeRequest, request: Request):
-    """Proxy Claude API calls — Claude only extracts/structures, never invents sources."""
-    check_secret(request)
-
+async def call_claude(messages: list, system: str = "", max_tokens: int = 4000) -> str:
+    """Internal helper to call Claude API and return text."""
     if not ANTHROPIC_API_KEY:
-        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY manquante côté serveur")
-
-    max_tokens = min(payload.max_tokens, 8000)
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY manquante")
 
     body = {
         "model": "claude-sonnet-4-20250514",
-        "max_tokens": max_tokens,
-        "messages": payload.messages,
+        "max_tokens": min(max_tokens, 8000),
+        "messages": messages,
     }
-    if payload.system:
-        body["system"] = payload.system
+    if system:
+        body["system"] = system
 
     async with httpx.AsyncClient(timeout=120.0) as client:
-        try:
-            res = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json=body,
-            )
-            res.raise_for_status()
-            return res.json()
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
-        except httpx.TimeoutException:
-            raise HTTPException(status_code=504, detail="Timeout — réessaie")
+        res = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json=body,
+        )
+        res.raise_for_status()
+        data = res.json()
+        return "".join(b.get("text", "") for b in data.get("content", []))
+
+
+def safe_parse_json(text: str) -> dict | list:
+    """Try to parse JSON, falling back to extracting the first JSON block."""
+    import re, json
+    text = text.strip()
+    # Remove markdown fences
+    text = re.sub(r"```json|```", "", text).strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        # Try to find first complete JSON object or array
+        for pattern in [r'\{[\s\S]*\}', r'\[[\s\S]*\]']:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    return json.loads(match.group())
+                except Exception:
+                    pass
+        raise ValueError("Impossible de parser la réponse JSON de Claude.")
+
+
+class ExtractRequest(BaseModel):
+    sources: list
+    query: str
+
+class DraftRequest(BaseModel):
+    query: str
+    angle: str = ""
+    concepts: list = []
+
+
+@app.post("/api/extract")
+async def extract_content(payload: ExtractRequest, request: Request):
+    """Claude extracts pedagogical content from REAL source content."""
+    check_secret(request)
+
+    src_text = "\n\n---\n\n".join([
+        f"SOURCE {i+1}: {s.get('title','')}\nURL: {s.get('url','')}\nContenu:\n{s.get('full_content') or s.get('description','(vide)')[:1500]}"
+        for i, s in enumerate(payload.sources[:5])
+    ])
+
+    prompt = f"""Expert pédagogie IA. Sujet: "{payload.query}"
+
+Contenu réel des sources:
+{src_text}
+
+Réponds avec un JSON valide et COMPACT (pas de sauts de ligne dans les valeurs):
+{{"angle_module":"phrase courte","concepts_cles":[{{"concept":"nom","definition":"def courte"}}],"points_pedagogiques":[{{"titre":"titre","contenu":"contenu court"}}],"idees_quiz":[{{"question":"Q?","reponse_courte":"rep"}}],"idees_exercices":[{{"titre":"titre","description":"desc"}}]}}
+
+STRICT: 3 concepts max, 3 points max, 3 quiz max, 2 exercices max. Valeurs courtes (max 15 mots). JSON sur une seule ligne."""
+
+    try:
+        raw = await call_claude([{"role": "user", "content": prompt}], max_tokens=1500)
+        result = safe_parse_json(raw)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Extraction échouée: {str(e)}")
+
+
+@app.post("/api/draft")
+async def generate_draft(payload: DraftRequest, request: Request):
+    """Claude generates a pedagogical module draft."""
+    check_secret(request)
+
+    concepts_str = ", ".join([c.get("concept","") if isinstance(c, dict) else str(c) for c in payload.concepts[:3]])
+
+    prompt = f"""Expert pédagogie IA. Génère un brouillon de module.
+Titre: "{payload.query}" | Angle: {payload.angle} | Concepts: {concepts_str}
+
+JSON COMPACT sur une seule ligne:
+{{"titre":"titre final","description":"2 phrases","objectifs":["obj1","obj2","obj3"],"plan_cours":[{{"section":"titre","duree_min":10,"contenu_resume":"1 phrase"}}],"quiz_draft":[{{"question":"Q?","options":["A. rep","B. rep","C. rep","D. rep"],"correct":"A","explication":"1 phrase"}}],"exercice_draft":{{"titre":"titre","objectif":"1 phrase","consignes":["e1","e2","e3"],"duree_estimee":"30 min"}},"tags":["t1","t2","t3"],"difficulte":"beginner","duree_totale_min":45}}
+
+STRICT: 3 sections plan, 2 questions quiz, valeurs courtes. JSON sur une seule ligne."""
+
+    try:
+        raw = await call_claude([{"role": "user", "content": prompt}], max_tokens=1500)
+        result = safe_parse_json(raw)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Brouillon échoué: {str(e)}")
+
+
+@app.post("/api/claude")
+async def claude_proxy(payload: ClaudeRequest, request: Request):
+    """Generic Claude proxy (kept for compatibility)."""
+    check_secret(request)
+    try:
+        text = await call_claude(payload.messages, payload.system, payload.max_tokens)
+        return {"content": [{"type": "text", "text": text}]}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Timeout — réessaie")
