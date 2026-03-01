@@ -399,53 +399,21 @@ async function callClaude(messages, system = "", max_tokens = 3000) {
 
 // ── Content extraction (Claude reads REAL content from sources) ─────────────
 async function extractContent(srcs, query) {
-  // Build context from REAL content returned by Tavily
-  const srcText = srcs.slice(0, 5).map((s, i) =>
-    `SOURCE ${i+1}: ${s.title}\nURL: ${s.url}\nContenu réel:\n${s.full_content || s.description || "(pas de contenu)"}`
-  ).join("\n\n---\n\n");
-
-  const prompt = `Tu es expert en ingénierie pédagogique IA.
-Sujet du module : "${query}"
-
-Voici le CONTENU RÉEL extrait de sources vérifiées. Analyse-le et structure le contenu pédagogique.
-
-${srcText}
-
-Réponds UNIQUEMENT avec ce JSON (textes courts, max 20 mots par champ) :
-{"angle_module":"1 phrase","concepts_cles":[{"concept":"nom","definition":"courte"}],"points_pedagogiques":[{"titre":"court","contenu":"1-2 phrases"}],"idees_quiz":[{"question":"Q?","reponse_courte":"réponse"}],"idees_exercices":[{"titre":"court","description":"1 phrase"}]}
-
-Limite: 4 concepts, 4 points, 3 quiz, 2 exercices. Basé UNIQUEMENT sur le contenu fourni.`;
-
-  const raw = await callClaude([{ role: "user", content: prompt }], "", 2500);
-  try {
-    return JSON.parse(raw.replace(/```json|```/g, "").trim());
-  } catch {
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
-    throw new Error("Erreur extraction contenu.");
-  }
+  // Backend calls Claude and handles JSON parsing safely
+  return await apiCall("/api/extract", {
+    sources: srcs.slice(0, 5),
+    query,
+  });
 }
 
 // ── Draft generation ────────────────────────────────────────────────────────
 async function generateDraft(query, ext) {
-  const prompt = `Ingénierie pédagogique IA. Génère un brouillon de module.
-Titre : "${query}"
-Angle : ${ext?.angle_module || ""}
-Concepts : ${ext?.concepts_cles?.map(c => c.concept).join(", ") || ""}
-
-JSON UNIQUEMENT, textes courts :
-{"titre":"...","description":"2 phrases","objectifs":["obj1","obj2","obj3"],"plan_cours":[{"section":"titre","duree_min":10,"contenu_resume":"1 phrase"}],"quiz_draft":[{"question":"Q?","options":["A. ...","B. ...","C. ...","D. ..."],"correct":"A","explication":"1 phrase"}],"exercice_draft":{"titre":"...","objectif":"1 phrase","consignes":["étape1","étape2","étape3"],"duree_estimee":"30 min"},"tags":["t1","t2","t3"],"difficulte":"beginner","duree_totale_min":45}
-
-Limite: 3 sections plan, 3 questions quiz.`;
-
-  const raw = await callClaude([{ role: "user", content: prompt }], "", 2500);
-  try {
-    return JSON.parse(raw.replace(/```json|```/g, "").trim());
-  } catch {
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
-    throw new Error("Erreur génération brouillon.");
-  }
+  // Backend calls Claude and handles JSON parsing safely
+  return await apiCall("/api/draft", {
+    query,
+    angle: ext?.angle_module || "",
+    concepts: ext?.concepts_cles || [],
+  });
 }
 
 // ── Quality helpers ────────────────────────────────────────────────────────
