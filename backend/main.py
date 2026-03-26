@@ -410,8 +410,37 @@ async def adapt_sector(payload: CasePracticeRequest, request: Request):
         raise HTTPException(status_code=500, detail=f"Adaptation échouée: {str(e)}")
 
 
-@app.post("/api/claude")
-async def claude_proxy(payload: ClaudeRequest, request: Request):
+class SolutionRequest(BaseModel):
+    query: str
+    exercice: dict
+
+
+@app.post("/api/solution")
+async def generate_solution(payload: SolutionRequest, request: Request):
+    """Generate a model answer and evaluation grid for an exercise."""
+    check_secret(request)
+
+    exo = payload.exercice
+    prompt = (
+        f'Expert pédagogie IA. Module: "{payload.query}"\n'
+        f'Exercice:\n'
+        f'- Titre: {exo.get("titre","")}\n'
+        f'- Objectif: {exo.get("objectif","")}\n'
+        f'- Mise en situation: {exo.get("mise_en_situation","")}\n'
+        f'- Tâches: {" / ".join(exo.get("taches", exo.get("etapes", [])))}\n'
+        f'- Livrable: {exo.get("livrable","")}\n\n'
+        f'Génère le corrigé type ET la grille d\'évaluation. JSON compact sur une seule ligne:\n'
+        '{"corrige":{"introduction":"phrase intro du corrige","elements_reponse":[{"tache":"nom tache","reponse_attendue":"ce que lapprenant doit produire concrètement","exemple_bon":"exemple de bonne reponse","erreurs_frequentes":"erreur typique a eviter"}],"conclusion":"ce que demontre un bon livrable"},'
+        '"grille_evaluation":{"total_points":20,"criteres":[{"critere":"nom critere","points":5,"indicateurs_reussite":["indicateur1","indicateur2"],"indicateurs_echec":["echec1"]}],"mention_tres_bien":"score >= 17","mention_bien":"score >= 14","mention_passable":"score >= 10"}}\n\n'
+        'STRICT: 1 element_reponse par tache, 4 criteres evaluation, JSON sur une seule ligne.'
+    )
+
+    try:
+        raw = await call_claude([{"role": "user", "content": prompt}], max_tokens=2000)
+        result = safe_parse_json(raw)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Solution échouée: {str(e)}")
     """Generic Claude proxy (kept for compatibility)."""
     check_secret(request)
     try:
