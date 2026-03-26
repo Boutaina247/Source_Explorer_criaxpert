@@ -325,15 +325,17 @@ async def extract_content(payload: ExtractRequest, request: Request):
         for i, s in enumerate(payload.sources[:5])
     ])
 
-    # Two-call strategy: first extract raw data, then structure it
-    # This avoids huge JSON in one shot
     extract_prompt = (
         f'Tu es expert en ingénierie pédagogique IA. Sujet du module: "{payload.query}"\n\n'
         f"Voici le contenu RÉEL extrait de sources web vérifiées:\n{src_text}\n\n"
         f"Analyse ce contenu et réponds en JSON compact sur UNE SEULE LIGNE.\n"
-        f"Format STRICT (pas de retour à la ligne dans les valeurs, max 40 mots par champ):\n"
-        '{"angle_module":"angle pedagogique unique","concepts_cles":[{"concept":"nom","definition":"definition claire en 1 phrase","exemple":"exemple concret court"}],"points_pedagogiques":[{"titre":"titre du point","contenu":"3-4 phrases structurees avec exemple concret tire des sources","source_url":"url"}],"idees_quiz":[{"question":"question precise?","reponse_courte":"reponse","distracteurs":["faux1","faux2","faux3"],"explication":"pourquoi cette reponse"}],"idees_exercices":[{"titre":"titre","objectif":"ce que lapprenant sait faire apres","mise_en_situation":"contexte realiste 2 phrases","etapes":["etape1","etape2","etape3"],"livrable":"ce que lapprenant produit"}]}\n\n'
-        "LIMITE: 4 concepts, 4 points pedagogiques, 3 quiz, 2 exercices. JSON sur une seule ligne."
+        f"Champs OBLIGATOIRES et noms EXACTS (pas de retour à la ligne dans les valeurs):\n"
+        '{"angle_module":"angle pedagogique unique en 1 phrase",'
+        '"concepts_cles":[{"concept":"nom court","definition":"definition claire 1 phrase","exemple":"exemple concret court"}],'
+        '"points_pedagogiques":[{"titre":"titre court","paragraphe":"paragraphe informatif de 4-5 phrases expliquant le concept en profondeur avec des faits tires des sources et un exemple concret","source_url":"url de la source"}],'
+        '"idees_quiz":[{"question":"question precise?","reponse_courte":"reponse correcte","distracteurs":["faux1","faux2","faux3"],"explication":"explication pedagogique courte"}],'
+        '"idees_exercices":[{"titre":"titre exercice","objectif":"competence que lapprenant developpe","taches":["tache1","tache2","tache3"],"cas_etude":"texte du cas detude concret en 3-4 phrases avec un contexte realiste et des chiffres ou details specifiques"}]}\n\n'
+        "LIMITE STRICTE: 4 concepts, 4 points, 3 quiz, 2 exercices. JSON sur une seule ligne."
     )
 
     try:
