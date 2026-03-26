@@ -297,6 +297,8 @@ def safe_parse_json(text: str) -> dict | list:
         raise ValueError("Impossible de parser la réponse JSON de Claude.")
 
 
+SECTORS = ["RH / Management", "Marketing / Communication", "Santé / Médical", "Finance / Banque", "Data / IA"]
+
 class ExtractRequest(BaseModel):
     sources: list
     query: str
@@ -305,30 +307,37 @@ class DraftRequest(BaseModel):
     query: str
     angle: str = ""
     concepts: list = []
+    points: list = []
+
+class CasePracticeRequest(BaseModel):
+    query: str
+    exercice_base: dict
+    sector: str
 
 
 @app.post("/api/extract")
 async def extract_content(payload: ExtractRequest, request: Request):
-    """Claude extracts pedagogical content from REAL source content."""
+    """Claude extracts rich pedagogical content from REAL source content."""
     check_secret(request)
 
     src_text = "\n\n---\n\n".join([
-        f"SOURCE {i+1}: {s.get('title','')}\nURL: {s.get('url','')}\nContenu:\n{s.get('full_content') or s.get('description','(vide)')[:1500]}"
+        f"SOURCE {i+1}: {s.get('title','')}\nURL: {s.get('url','')}\nContenu:\n{(s.get('full_content') or s.get('description','(vide)'))[:600]}"
         for i, s in enumerate(payload.sources[:5])
     ])
 
-    json_template = '{"angle_module":"phrase courte","concepts_cles":[{"concept":"nom","definition":"def courte"}],"points_pedagogiques":[{"titre":"titre","contenu":"contenu court"}],"idees_quiz":[{"question":"Q?","reponse_courte":"rep"}],"idees_exercices":[{"titre":"titre","description":"desc"}]}'
-
-    prompt = (
-        f'Expert pédagogie IA. Sujet: "{payload.query}"\n\n'
-        f"Contenu réel des sources:\n{src_text}\n\n"
-        f"Réponds avec un JSON valide et COMPACT (pas de sauts de ligne dans les valeurs):\n"
-        f"{json_template}\n\n"
-        f"STRICT: 3 concepts max, 3 points max, 3 quiz max, 2 exercices max. Valeurs courtes (max 15 mots). JSON sur une seule ligne."
+    # Two-call strategy: first extract raw data, then structure it
+    # This avoids huge JSON in one shot
+    extract_prompt = (
+        f'Tu es expert en ingénierie pédagogique IA. Sujet du module: "{payload.query}"\n\n'
+        f"Voici le contenu RÉEL extrait de sources web vérifiées:\n{src_text}\n\n"
+        f"Analyse ce contenu et réponds en JSON compact sur UNE SEULE LIGNE.\n"
+        f"Format STRICT (pas de retour à la ligne dans les valeurs, max 40 mots par champ):\n"
+        '{"angle_module":"angle pedagogique unique","concepts_cles":[{"concept":"nom","definition":"definition claire en 1 phrase","exemple":"exemple concret court"}],"points_pedagogiques":[{"titre":"titre du point","contenu":"3-4 phrases structurees avec exemple concret tire des sources","source_url":"url"}],"idees_quiz":[{"question":"question precise?","reponse_courte":"reponse","distracteurs":["faux1","faux2","faux3"],"explication":"pourquoi cette reponse"}],"idees_exercices":[{"titre":"titre","objectif":"ce que lapprenant sait faire apres","mise_en_situation":"contexte realiste 2 phrases","etapes":["etape1","etape2","etape3"],"livrable":"ce que lapprenant produit"}]}\n\n'
+        "LIMITE: 4 concepts, 4 points pedagogiques, 3 quiz, 2 exercices. JSON sur une seule ligne."
     )
 
     try:
-        raw = await call_claude([{"role": "user", "content": prompt}], max_tokens=1500)
+        raw = await call_claude([{"role": "user", "content": extract_prompt}], max_tokens=2500)
         result = safe_parse_json(raw)
         return result
     except Exception as e:
@@ -337,27 +346,66 @@ async def extract_content(payload: ExtractRequest, request: Request):
 
 @app.post("/api/draft")
 async def generate_draft(payload: DraftRequest, request: Request):
-    """Claude generates a pedagogical module draft."""
+    """Claude generates a rich pedagogical module draft."""
     check_secret(request)
 
-    concepts_str = ", ".join([c.get("concept","") if isinstance(c, dict) else str(c) for c in payload.concepts[:3]])
+    concepts_str = ", ".join([c.get("concept","") if isinstance(c, dict) else str(c) for c in payload.concepts[:4]])
+    points_str = " | ".join([p.get("titre","") if isinstance(p, dict) else str(p) for p in payload.points[:4]])
 
-    draft_template = '{"titre":"titre final","description":"2 phrases","objectifs":["obj1","obj2","obj3"],"plan_cours":[{"section":"titre","duree_min":10,"contenu_resume":"1 phrase"}],"quiz_draft":[{"question":"Q?","options":["A. rep","B. rep","C. rep","D. rep"],"correct":"A","explication":"1 phrase"}],"exercice_draft":{"titre":"titre","objectif":"1 phrase","consignes":["e1","e2","e3"],"duree_estimee":"30 min"},"tags":["t1","t2","t3"],"difficulte":"beginner","duree_totale_min":45}'
+    draft_template = (
+        '{"titre":"titre final du module","description":"2 phrases pour le catalogue","objectifs":["objectif 1","objectif 2","objectif 3"],'
+        '"plan_cours":[{"section":"titre section","duree_min":15,"contenu_resume":"resume 2-3 phrases du contenu","points_cles":["point1","point2"]}],'
+        '"quiz_draft":[{"question":"question precise?","options":["A. rep","B. rep","C. rep","D. rep"],"correct":"A","explication":"explication pedagogique"}],'
+        '"exercice_principal":{"titre":"titre","objectif":"competence visee","mise_en_situation":"contexte realiste 3 phrases","etapes":["etape detaillee 1","etape detaillee 2","etape detaillee 3","etape detaillee 4"],"livrable":"livrable concret","duree_estimee":"45 min","criteres_reussite":["critere1","critere2"]},'
+        '"variantes_sectorielles":{"RH / Management":{"contexte":"adaptation RH","personnage":"profil RH"},"Marketing / Communication":{"contexte":"adaptation Marketing","personnage":"profil Marketing"},"Sante / Medical":{"contexte":"adaptation Sante","personnage":"profil Sante"},"Finance / Banque":{"contexte":"adaptation Finance","personnage":"profil Finance"},"Data / IA":{"contexte":"adaptation Data","personnage":"profil Data"}},'
+        '"tags":["tag1","tag2","tag3"],"difficulte":"beginner","duree_totale_min":60}'
+    )
 
     prompt = (
-        f'Expert pédagogie IA. Génère un brouillon de module.\n'
-        f'Titre: "{payload.query}" | Angle: {payload.angle} | Concepts: {concepts_str}\n\n'
-        f"JSON COMPACT sur une seule ligne:\n"
-        f"{draft_template}\n\n"
-        f"STRICT: 3 sections plan, 2 questions quiz, valeurs courtes. JSON sur une seule ligne."
+        f'Expert ingénierie pédagogique IA. Génère un brouillon complet.\n'
+        f'Titre: "{payload.query}" | Angle: {payload.angle}\n'
+        f'Concepts: {concepts_str}\n'
+        f'Points pédagogiques: {points_str}\n\n'
+        f'JSON COMPACT sur une seule ligne, max 50 mots par champ:\n'
+        f'{draft_template}\n\n'
+        f'STRICT: 4 sections plan avec points_cles, 3 questions quiz, variantes_sectorielles pour les 5 secteurs. JSON sur une seule ligne.'
     )
 
     try:
-        raw = await call_claude([{"role": "user", "content": prompt}], max_tokens=1500)
+        raw = await call_claude([{"role": "user", "content": prompt}], max_tokens=3000)
         result = safe_parse_json(raw)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Brouillon échoué: {str(e)}")
+
+
+@app.post("/api/adapt-sector")
+async def adapt_sector(payload: CasePracticeRequest, request: Request):
+    """Generate a sector-specific adaptation of an exercise."""
+    check_secret(request)
+
+    base = payload.exercice_base
+    prompt = (
+        f'Expert pédagogie IA. Adapte cet exercice pour le secteur "{payload.sector}".\n'
+        f'Module: "{payload.query}"\n'
+        f'Exercice original:\n'
+        f'- Titre: {base.get("titre","")}\n'
+        f'- Objectif: {base.get("objectif","")}\n'
+        f'- Mise en situation: {base.get("mise_en_situation","")}\n'
+        f'- Étapes: {" / ".join(base.get("etapes",[]))}\n'
+        f'- Livrable: {base.get("livrable","")}\n\n'
+        f'Génère une adaptation pour "{payload.sector}" en JSON compact sur une seule ligne:\n'
+        '{"titre":"titre adapte","mise_en_situation":"contexte specifique au secteur 3 phrases","personnage":"profil type du secteur","etapes":["etape1","etape2","etape3","etape4"],"livrable":"livrable adapte au secteur","duree_estimee":"45 min"}\n\n'
+        f'Garde le même objectif pédagogique, change uniquement le contexte métier.'
+    )
+
+    try:
+        raw = await call_claude([{"role": "user", "content": prompt}], max_tokens=1000)
+        result = safe_parse_json(raw)
+        result["sector"] = payload.sector
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Adaptation échouée: {str(e)}")
 
 
 @app.post("/api/claude")
