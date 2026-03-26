@@ -397,23 +397,24 @@ async function callClaude(messages, system = "", max_tokens = 3000) {
   return (data.content || []).map(b => b.text || "").join("");
 }
 
-// ── Content extraction (Claude reads REAL content from sources) ─────────────
+// ── Content extraction ──────────────────────────────────────────────────────
 async function extractContent(srcs, query) {
-  // Backend calls Claude and handles JSON parsing safely
-  return await apiCall("/api/extract", {
-    sources: srcs.slice(0, 5),
-    query,
-  });
+  return await apiCall("/api/extract", { sources: srcs.slice(0, 5), query });
 }
 
-// ── Draft generation ────────────────────────────────────────────────────────
+// ── Draft generation ─────────────────────────────────────────────────────────
 async function generateDraft(query, ext) {
-  // Backend calls Claude and handles JSON parsing safely
   return await apiCall("/api/draft", {
     query,
     angle: ext?.angle_module || "",
     concepts: ext?.concepts_cles || [],
+    points: ext?.points_pedagogiques || [],
   });
+}
+
+// ── Sector adaptation ────────────────────────────────────────────────────────
+async function adaptSector(query, exerciceBase, sector) {
+  return await apiCall("/api/adapt-sector", { query, exercice_base: exerciceBase, sector });
 }
 
 // ── Quality helpers ────────────────────────────────────────────────────────
@@ -627,28 +628,44 @@ function renderExtractTab() {
   if (!extracted) return;
   const container = document.getElementById("panel-extract");
 
+  // Concepts with examples
   const concepts = (extracted.concepts_cles || []).map(c => `
     <div class="extract-item">
-      <div class="extract-name" style="color:#fbbf24">${c.concept}</div>
-      <div class="extract-desc">${c.definition}</div>
+      <div class="extract-name" style="color:#fbbf24">🧩 ${c.concept}</div>
+      <div class="extract-desc" style="margin-top:4px">${c.definition}</div>
+      ${c.exemple ? `<div style="margin-top:6px;padding:8px 10px;background:rgba(251,191,36,.06);border-left:2px solid #fbbf24;border-radius:4px;font-size:12px;color:#94a3b8"><span style="color:#fbbf24;font-weight:700">Ex : </span>${c.exemple}</div>` : ""}
     </div>`).join("");
 
-  const points = (extracted.points_pedagogiques || []).map(p => `
+  // Points pédagogiques — rich 3-4 sentences + source
+  const points = (extracted.points_pedagogiques || []).map((p, i) => `
     <div class="extract-item">
-      <div class="extract-name" style="color:#38bdf8">${p.titre}</div>
-      <div class="extract-desc">${p.contenu}</div>
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <div style="background:rgba(56,189,248,.15);color:#38bdf8;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:800;flex-shrink:0;margin-top:2px">${i+1}</div>
+        <div style="flex:1">
+          <div class="extract-name" style="color:#38bdf8">${p.titre}</div>
+          <div class="extract-desc" style="margin-top:5px;line-height:1.7">${p.contenu}</div>
+          ${p.source_url ? `<a href="${p.source_url}" target="_blank" style="font-size:10px;color:var(--accent);margin-top:4px;display:block">↗ Source</a>` : ""}
+        </div>
+      </div>
     </div>`).join("");
 
+  // Quiz with distractors
   const quiz = (extracted.idees_quiz || []).map((q, i) => `
     <div class="extract-item">
-      <div class="extract-name" style="color:#6ee7b7">Q${i+1} : ${q.question}</div>
-      <div class="extract-sub">→ ${q.reponse_courte}</div>
+      <div class="extract-name" style="color:#6ee7b7">Q${i+1} — ${q.question}</div>
+      <div style="margin-top:6px;padding:6px 10px;background:rgba(16,185,129,.08);border-radius:6px;font-size:12px;color:#6ee7b7;font-weight:700">✓ ${q.reponse_courte}</div>
+      ${q.distracteurs?.length ? `<div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${q.distracteurs.map(d => `<span style="font-size:11px;color:var(--muted2);background:var(--border);border-radius:4px;padding:2px 8px">${d}</span>`).join("")}</div>` : ""}
+      ${q.explication ? `<div style="margin-top:5px;font-size:12px;color:var(--muted);font-style:italic">💡 ${q.explication}</div>` : ""}
     </div>`).join("");
 
+  // Exercices with mise en situation
   const exos = (extracted.idees_exercices || []).map(ex => `
     <div class="extract-item">
-      <div class="extract-name" style="color:#f9a8d4">${ex.titre}</div>
-      <div class="extract-desc">${ex.description}</div>
+      <div class="extract-name" style="color:#f9a8d4">🏋️ ${ex.titre}</div>
+      <div style="margin-top:4px;font-size:12px;color:#a78bfa;font-weight:600">Objectif : ${ex.objectif}</div>
+      ${ex.mise_en_situation ? `<div style="margin-top:6px;padding:8px 10px;background:rgba(249,168,212,.06);border-left:2px solid #f9a8d4;border-radius:4px;font-size:12px;color:#94a3b8">${ex.mise_en_situation}</div>` : ""}
+      ${ex.etapes?.length ? `<div style="margin-top:6px">${ex.etapes.map((e,i) => `<div style="display:flex;gap:6px;margin-bottom:4px;font-size:12px"><span style="color:#f9a8d4;font-weight:700;flex-shrink:0">${i+1}.</span><span style="color:#cbd5e1">${e}</span></div>`).join("")}</div>` : ""}
+      ${ex.livrable ? `<div style="margin-top:6px;font-size:11px;color:var(--muted2)">📄 Livrable : ${ex.livrable}</div>` : ""}
     </div>`).join("");
 
   container.innerHTML = `
@@ -668,11 +685,11 @@ function renderExtractTab() {
     </div>
     <div class="two-col">
       <div class="extract-card">
-        <div class="section-label" style="color:#10b981">❓ Idées quiz (${(extracted.idees_quiz||[]).length})</div>
+        <div class="section-label" style="color:#10b981">❓ Idées quiz avec distracteurs (${(extracted.idees_quiz||[]).length})</div>
         ${quiz}
       </div>
       <div class="extract-card">
-        <div class="section-label" style="color:#ec4899">🏋️ Idées exercices (${(extracted.idees_exercices||[]).length})</div>
+        <div class="section-label" style="color:#ec4899">🏋️ Cas pratiques (${(extracted.idees_exercices||[]).length})</div>
         ${exos}
       </div>
     </div>
@@ -706,15 +723,21 @@ function renderDraftContent() {
   const container = document.getElementById("panel-draft");
   const d = draft;
 
-  const plan = (d.plan_cours || []).map(s => `
+  // Plan de cours — rich with points_cles
+  const plan = (d.plan_cours || []).map((s, i) => `
     <div class="extract-item">
-      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
-        <span class="extract-name" style="color:#fbbf24">${s.section}</span>
-        <span style="font-size:11px;color:var(--muted2)">${s.duree_min} min</span>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="background:rgba(251,191,36,.15);color:#fbbf24;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:800">${i+1}</span>
+          <span class="extract-name" style="color:#fbbf24">${s.section}</span>
+        </div>
+        <span style="font-size:11px;color:var(--muted2);flex-shrink:0">${s.duree_min} min</span>
       </div>
-      <div class="extract-desc">${s.contenu_resume}</div>
+      <div class="extract-desc" style="line-height:1.7;margin-bottom:8px">${s.contenu_resume}</div>
+      ${s.points_cles?.length ? `<div style="display:flex;flex-wrap:wrap;gap:5px">${s.points_cles.map(p => `<span style="font-size:11px;background:rgba(251,191,36,.08);color:#94a3b8;border:1px solid rgba(251,191,36,.15);border-radius:5px;padding:2px 8px">${p}</span>`).join("")}</div>` : ""}
     </div>`).join("");
 
+  // Quiz
   const quizHtml = (d.quiz_draft || []).map((q, i) => `
     <div class="quiz-q">
       <div class="quiz-question">Q${i+1} — ${q.question}</div>
@@ -726,18 +749,55 @@ function renderDraftContent() {
       <div class="quiz-expl">💡 ${q.explication}</div>
     </div>`).join("");
 
-  const exo = d.exercice_draft;
+  // Exercice principal
+  const exo = d.exercice_principal || d.exercice_draft;
   const exoHtml = exo ? `
-    <div class="exo-box">
-      <div class="section-label" style="color:#ec4899">🏋️ Exercice · ${exo.duree_estimee}</div>
-      <div style="font-size:15px;font-weight:700;color:#f8fafc;margin-bottom:6px">${exo.titre}</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:12px">${exo.objectif}</div>
-      ${(exo.consignes || []).map(c => `
-      <div style="display:flex;gap:8px;margin-bottom:6px">
-        <span style="color:#ec4899;font-weight:700;flex-shrink:0">→</span>
-        <span style="font-size:13px;color:#cbd5e1">${c}</span>
-      </div>`).join("")}
+    <div class="exo-box" id="exo-principal">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+        <div>
+          <div class="section-label" style="color:#ec4899;margin-bottom:6px">🏋️ Cas pratique principal · ${exo.duree_estimee || "45 min"}</div>
+          <div style="font-size:16px;font-weight:800;color:#f8fafc">${exo.titre}</div>
+        </div>
+      </div>
+      <div style="font-size:13px;color:#a78bfa;font-weight:600;margin-bottom:8px">🎯 Objectif : ${exo.objectif}</div>
+      ${exo.mise_en_situation ? `
+        <div style="padding:12px 14px;background:rgba(249,168,212,.06);border-left:3px solid #f9a8d4;border-radius:6px;margin-bottom:14px">
+          <div style="font-size:11px;font-weight:700;color:#f9a8d4;margin-bottom:4px">📍 MISE EN SITUATION</div>
+          <div style="font-size:13px;color:#cbd5e1;line-height:1.6">${exo.mise_en_situation}</div>
+        </div>` : ""}
+      ${exo.etapes?.length ? `
+        <div style="margin-bottom:12px">
+          <div style="font-size:11px;font-weight:700;color:#f9a8d4;margin-bottom:8px">ÉTAPES</div>
+          ${exo.etapes.map((e, i) => `
+          <div style="display:flex;gap:10px;margin-bottom:8px;align-items:flex-start">
+            <span style="background:#ec4899;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0;margin-top:1px">${i+1}</span>
+            <span style="font-size:13px;color:#cbd5e1;line-height:1.5">${e}</span>
+          </div>`).join("")}
+        </div>` : ""}
+      ${exo.livrable ? `<div style="padding:8px 12px;background:rgba(16,185,129,.08);border-radius:6px;font-size:12px;color:#6ee7b7"><span style="font-weight:700">📄 Livrable attendu : </span>${exo.livrable}</div>` : ""}
+      ${exo.criteres_reussite?.length ? `
+        <div style="margin-top:10px">
+          <div style="font-size:11px;font-weight:700;color:#6ee7b7;margin-bottom:6px">✅ CRITÈRES DE RÉUSSITE</div>
+          ${exo.criteres_reussite.map(c => `<div style="font-size:12px;color:#94a3b8;margin-bottom:4px">• ${c}</div>`).join("")}
+        </div>` : ""}
     </div>` : "";
+
+  // Sector variants
+  const sectors = ["RH / Management", "Marketing / Communication", "Santé / Médical", "Finance / Banque", "Data / IA"];
+  const variantesHtml = `
+    <div class="exo-box" style="border-color:rgba(99,102,241,.3)">
+      <div class="section-label" style="color:var(--accent);margin-bottom:12px">🎨 Adapter le cas pratique par secteur</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Génère automatiquement une version du cas pratique adaptée au contexte métier de tes apprenants.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+        ${sectors.map(s => `<button class="chip" onclick="generateSectorVariant('${s}')" id="sector-btn-${s.replace(/[^a-z]/gi,'')}">${s}</button>`).join("")}
+      </div>
+      <div id="sector-variant-result"></div>
+      <div style="margin-top:14px">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">✏️ OU PERSONNALISE MANUELLEMENT</div>
+        <textarea id="custom-context" placeholder="Décris le contexte ou le secteur spécifique de tes apprenants..." style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-size:13px;resize:vertical;min-height:70px;font-family:inherit;outline:none"></textarea>
+        <button onclick="applyCustomContext()" style="margin-top:8px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:var(--accent2);border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">Générer variante personnalisée →</button>
+      </div>
+    </div>`;
 
   container.innerHTML = `
     <div class="draft-meta">
@@ -765,19 +825,58 @@ function renderDraftContent() {
         </div>`).join("")}
       </div>
       <div class="draft-section">
-        <div class="section-label" style="color:#f59e0b">📐 Plan cours</div>
+        <div class="section-label" style="color:#f59e0b">📐 Plan de cours</div>
         ${plan}
       </div>
     </div>
     <div class="draft-section">
-      <div class="section-label" style="color:#10b981">❓ Quiz draft</div>
+      <div class="section-label" style="color:#10b981">❓ Quiz</div>
       ${quizHtml}
     </div>
     ${exoHtml}
+    ${variantesHtml}
     <div class="draft-actions">
       <button class="btn-export" onclick="exportTxt()">⬇️ Exporter .txt</button>
       <button class="btn-copy" id="btn-copy" onclick="copyDraft()">📋 Copier le brouillon</button>
     </div>`;
+}
+
+async function generateSectorVariant(sector) {
+  const query = mode === "auto"
+    ? document.getElementById("query-input").value
+    : document.getElementById("manual-query").value;
+  const exo = draft?.exercice_principal || draft?.exercice_draft;
+  if (!exo) return;
+
+  const resultDiv = document.getElementById("sector-variant-result");
+  const btnId = `sector-btn-${sector.replace(/[^a-z]/gi,'')}`;
+  const btn = document.getElementById(btnId);
+  if (btn) { btn.textContent = "⏳ " + sector; btn.disabled = true; }
+  resultDiv.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:10px">Génération en cours…</div>`;
+
+  try {
+    const variant = await adaptSector(query, exo, sector);
+    resultDiv.innerHTML = `
+      <div style="background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.2);border-radius:10px;padding:16px;margin-top:4px">
+        <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:10px">🎨 Variante — ${variant.sector}</div>
+        ${variant.personnage ? `<div style="font-size:12px;color:#a78bfa;margin-bottom:8px">👤 ${variant.personnage}</div>` : ""}
+        <div style="padding:10px 12px;background:rgba(249,168,212,.05);border-left:2px solid #f9a8d4;border-radius:5px;margin-bottom:10px">
+          <div style="font-size:11px;font-weight:700;color:#f9a8d4;margin-bottom:3px">MISE EN SITUATION</div>
+          <div style="font-size:13px;color:#cbd5e1;line-height:1.6">${variant.mise_en_situation}</div>
+        </div>
+        ${variant.etapes?.map((e, i) => `<div style="display:flex;gap:8px;margin-bottom:6px;font-size:12px"><span style="color:#ec4899;font-weight:700;flex-shrink:0">${i+1}.</span><span style="color:#cbd5e1">${e}</span></div>`).join("")}
+        ${variant.livrable ? `<div style="margin-top:8px;font-size:11px;color:#6ee7b7">📄 ${variant.livrable}</div>` : ""}
+      </div>`;
+  } catch (e) {
+    resultDiv.innerHTML = `<div style="color:#fca5a5;font-size:12px">❌ ${e.message}</div>`;
+  }
+  if (btn) { btn.textContent = sector; btn.disabled = false; }
+}
+
+async function applyCustomContext() {
+  const context = document.getElementById("custom-context")?.value?.trim();
+  if (!context) return;
+  await generateSectorVariant(context);
 }
 
 // ── Export .txt ────────────────────────────────────────────────────────────
