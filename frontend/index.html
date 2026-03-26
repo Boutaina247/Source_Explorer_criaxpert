@@ -636,15 +636,15 @@ function renderExtractTab() {
       ${c.exemple ? `<div style="margin-top:6px;padding:8px 10px;background:rgba(251,191,36,.06);border-left:2px solid #fbbf24;border-radius:4px;font-size:12px;color:#94a3b8"><span style="color:#fbbf24;font-weight:700">Ex : </span>${c.exemple}</div>` : ""}
     </div>`).join("");
 
-  // Points pédagogiques — rich 3-4 sentences + source
+  // Points pédagogiques — full paragraph
   const points = (extracted.points_pedagogiques || []).map((p, i) => `
     <div class="extract-item">
       <div style="display:flex;align-items:flex-start;gap:10px">
         <div style="background:rgba(56,189,248,.15);color:#38bdf8;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:800;flex-shrink:0;margin-top:2px">${i+1}</div>
         <div style="flex:1">
           <div class="extract-name" style="color:#38bdf8">${p.titre}</div>
-          <div class="extract-desc" style="margin-top:5px;line-height:1.7">${p.contenu}</div>
-          ${p.source_url ? `<a href="${p.source_url}" target="_blank" style="font-size:10px;color:var(--accent);margin-top:4px;display:block">↗ Source</a>` : ""}
+          <div class="extract-desc" style="margin-top:6px;line-height:1.8;font-size:13px">${p.paragraphe || p.contenu || ""}</div>
+          ${p.source_url ? `<a href="${p.source_url}" target="_blank" style="font-size:10px;color:var(--accent);margin-top:5px;display:block">↗ Source</a>` : ""}
         </div>
       </div>
     </div>`).join("");
@@ -658,14 +658,20 @@ function renderExtractTab() {
       ${q.explication ? `<div style="margin-top:5px;font-size:12px;color:var(--muted);font-style:italic">💡 ${q.explication}</div>` : ""}
     </div>`).join("");
 
-  // Exercices with mise en situation
+  // Exercices — objectif + taches + cas d'étude
   const exos = (extracted.idees_exercices || []).map(ex => `
     <div class="extract-item">
       <div class="extract-name" style="color:#f9a8d4">🏋️ ${ex.titre}</div>
-      <div style="margin-top:4px;font-size:12px;color:#a78bfa;font-weight:600">Objectif : ${ex.objectif}</div>
-      ${ex.mise_en_situation ? `<div style="margin-top:6px;padding:8px 10px;background:rgba(249,168,212,.06);border-left:2px solid #f9a8d4;border-radius:4px;font-size:12px;color:#94a3b8">${ex.mise_en_situation}</div>` : ""}
-      ${ex.etapes?.length ? `<div style="margin-top:6px">${ex.etapes.map((e,i) => `<div style="display:flex;gap:6px;margin-bottom:4px;font-size:12px"><span style="color:#f9a8d4;font-weight:700;flex-shrink:0">${i+1}.</span><span style="color:#cbd5e1">${e}</span></div>`).join("")}</div>` : ""}
-      ${ex.livrable ? `<div style="margin-top:6px;font-size:11px;color:var(--muted2)">📄 Livrable : ${ex.livrable}</div>` : ""}
+      <div style="margin-top:5px;font-size:12px;color:#a78bfa;font-weight:600">🎯 Objectif : ${ex.objectif || ""}</div>
+      ${ex.taches?.length ? `
+        <div style="margin-top:8px">
+          ${ex.taches.map((t,i) => `<div style="display:flex;gap:6px;margin-bottom:4px;font-size:12px"><span style="color:#f9a8d4;font-weight:700;flex-shrink:0">${i+1}.</span><span style="color:#cbd5e1">${t}</span></div>`).join("")}
+        </div>` : ""}
+      ${ex.cas_etude ? `
+        <div style="margin-top:10px;padding:10px 12px;background:rgba(249,168,212,.06);border-left:3px solid #f9a8d4;border-radius:6px">
+          <div style="font-size:10px;font-weight:700;color:#f9a8d4;margin-bottom:5px;letter-spacing:.06em">📖 CAS D'ÉTUDE</div>
+          <div style="font-size:13px;color:#cbd5e1;line-height:1.7">${ex.cas_etude}</div>
+        </div>` : ""}
     </div>`).join("");
 
   container.innerHTML = `
@@ -909,7 +915,7 @@ function exportTxt() {
     }
     if (extracted.points_pedagogiques?.length) {
       txt += `\nPoints pédagogiques :\n`;
-      extracted.points_pedagogiques.forEach(p => txt += `  • ${p.titre}\n    ${p.contenu}\n`);
+      extracted.points_pedagogiques.forEach(p => txt += `  • ${p.titre}\n    ${p.paragraphe || p.contenu || ""}\n`);
     }
     if (extracted.idees_quiz?.length) {
       txt += `\nIdées quiz :\n`;
