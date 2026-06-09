@@ -255,7 +255,7 @@ async def call_claude(messages: list, system: str = "", max_tokens: int = 4000) 
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY manquante")
 
     body = {
-        "model": "claude-sonnet-4-20250514",
+        "model": "claude-sonnet-4-6",
         "max_tokens": min(max_tokens, 8000),
         "messages": messages,
     }
