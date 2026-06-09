@@ -272,6 +272,8 @@ async def call_claude(messages: list, system: str = "", max_tokens: int = 4000) 
             },
             json=body,
         )
+        if res.status_code != 200:
+            print(f"ANTHROPIC ERROR {res.status_code}: {res.text}")
         res.raise_for_status()
         data = res.json()
         return "".join(b.get("text", "") for b in data.get("content", []))
