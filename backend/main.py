@@ -280,11 +280,18 @@ async def call_claude(messages: list, system: str = "", max_tokens: int = 4000) 
 
 
 def safe_parse_json(text: str) -> dict | list:
-    """Try to parse JSON, falling back to extracting the first JSON block."""
     import re, json
     text = text.strip()
     # Remove markdown fences
     text = re.sub(r"```json|```", "", text).strip()
+    # Remove any text before first { or [
+    match = re.search(r'[\{\[]', text)
+    if match:
+        text = text[match.start():]
+    # Remove any text after last } or ]
+    match = re.search(r'[\}\]](?=[^\}\]]*$)', text)
+    if match:
+        text = text[:match.end()]
     try:
         return json.loads(text)
     except Exception:
