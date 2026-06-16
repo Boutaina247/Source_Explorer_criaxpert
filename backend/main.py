@@ -349,6 +349,7 @@ async def extract_content(payload: ExtractRequest, request: Request):
 
     try:
         raw = await call_claude([{"role": "user", "content": extract_prompt}], max_tokens=2500)
+        print(f"RAW CLAUDE: {raw[:500]}")
         result = safe_parse_json(raw)
         return result
     except Exception as e:
